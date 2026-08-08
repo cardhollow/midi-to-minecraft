@@ -14,6 +14,7 @@
     <div class="app">
       <div class="tab-bar">
         <button id="playButton" class="play-button">Play</button>
+        <button id="settingsButton" class="tab">Settings</button>
         <button id="copyCommandButton" class="tab">Copy Command</button>
         <button id="importMidiButton" class="tab">Import MIDI</button>
         <input id="midiFileInput" type="file" accept=".mid,.midi,audio/midi" style="display:none" />
@@ -41,6 +42,35 @@
         </div>
       </div>
     </div>
+    
+    <div id="settingsModal" class="command-modal">
+  <div class="command-modal-box">
+    <div class="command-modal-title">Settings</div>
+
+    <div class="settings-row">
+      <div class="settings-label">Is Mono</div>
+
+      <button
+        id="monoToggleButton"
+        class="tab settings-toggle"
+        type="button"
+      >
+        ON
+      </button>
+    </div>
+    <button id="reloadButton" class="tab">Reload</button>
+
+    <div class="command-modal-buttons">
+      <button
+        id="settingsCloseButton"
+        class="play-button"
+        type="button"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+</div>
 
     <script src="js/redstone-grid-core.js"></script>
     <script src="js/redstone-grid-commands.js"></script>
