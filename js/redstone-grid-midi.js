@@ -3,22 +3,30 @@ const midiFileInput = document.getElementById("midiFileInput");
 
 let MIDI_JSON = [];
 
+let PARSED_MIDI = null;
+
+let isMono = false;
 const START_BUCKET_MS = 70;
 const MIN_MELODY_SPACING_MS = 140;
+const MERGE_SAME_NOTE_GAP_MS = 90;
 const TIME_STRETCH = 1.35;
 const DROP_DRUM_CHANNELS = true;
 const PREFERRED_CENTER_MIDI = 60;
 const MAX_JUMP_PENALTY = 3.0;
 const MIN_NOTE_DURATION_MS = 50;
-
 function readVarLen(view, offset) {
   let value = 0;
   let byte = 0;
+
   do {
     byte = view.getUint8(offset++);
     value = (value << 7) | (byte & 0x7F);
   } while (byte & 0x80);
-  return { value, offset };
+
+  return {
+    value,
+    offset
+  };
 }
 
 function bytesToString(view, offset, length) {
@@ -218,6 +226,30 @@ function parseMidiFile(arrayBuffer) {
   return parsed;
 }
 
+function collectPlayableNotes(parsed) {
+  const out = [];
+
+  for (const track of parsed.tracks || []) {
+    for (const note of track.notes || []) {
+      if (DROP_DRUM_CHANNELS && Number(note.channel) === 9) continue;
+      out.push({
+        ...note,
+        trackIndex: track.index
+      });
+    }
+  }
+
+  out.sort((a, b) => {
+    if (a.startMs !== b.startMs) return a.startMs - b.startMs;
+    if (a.startTick !== b.startTick) return a.startTick - b.startTick;
+    if (a.note !== b.note) return a.note - b.note;
+    if (a.channel !== b.channel) return a.channel - b.channel;
+    return a.velocity - b.velocity;
+  });
+
+  return out;
+}
+
 function trackScore(notes) {
   const usable = notes.filter(n => !DROP_DRUM_CHANNELS || Number(n.channel) !== 9);
   if (usable.length === 0) return -Infinity;
@@ -228,6 +260,7 @@ function trackScore(notes) {
 
   let longNotes = 0;
   let melodyRange = 0;
+
   for (const n of usable) {
     if ((n.durationMs || 0) >= MIN_NOTE_DURATION_MS) longNotes++;
     melodyRange += Math.abs(n.note - PREFERRED_CENTER_MIDI);
@@ -264,16 +297,39 @@ function chooseTranspose(notes) {
 
   for (let shift = -24; shift <= 24; shift++) {
     let score = 0;
-    let last = null;
 
-    for (const n of notes) {
-      const p = n.note + shift;
+    if (isMono) {
+      let last = null;
 
-      if (p >= 48 && p <= 72) score += 10;
-      else score -= Math.abs(p < 48 ? 48 - p : p - 72) * 4;
+      for (const n of notes) {
+        const p = n.note + shift;
 
-      if (last !== null) score -= Math.abs(p - last) * MAX_JUMP_PENALTY;
-      last = p;
+        if (p >= 48 && p <= 72) score += 10;
+        else score -= Math.abs(p < 48 ? 48 - p : p - 72) * 4;
+
+        if (last !== null) score -= Math.abs(p - last) * MAX_JUMP_PENALTY;
+        last = p;
+      }
+    } else {
+      let inRangeCount = 0;
+      let centerDistance = 0;
+
+      for (const n of notes) {
+        const p = n.note + shift;
+
+        if (p >= 48 && p <= 72) {
+          score += 12;
+          inRangeCount++;
+        } else {
+          score -= Math.abs(p < 48 ? 48 - p : p - 72) * 4;
+        }
+
+        centerDistance += Math.abs(p - PREFERRED_CENTER_MIDI);
+        score += Math.min(3000, n.durationMs || 0) / 250;
+      }
+
+      score += inRangeCount * 4;
+      score -= centerDistance * 0.02;
     }
 
     if (score > bestScore) {
@@ -285,6 +341,43 @@ function chooseTranspose(notes) {
   return bestShift;
 }
 
+function notePriorityScore(note, transpose) {
+  const pitch = note.note + transpose;
+  let score = 0;
+
+  score += (note.velocity || 0) * 2.5;
+  score += Math.min(3000, note.durationMs || 0) / 120;
+
+  if (pitch >= 48 && pitch <= 72) score += 50;
+  else score -= Math.abs(pitch < 48 ? 48 - pitch : pitch - 72) * 6;
+
+  score += 72 - Math.abs(pitch - PREFERRED_CENTER_MIDI);
+
+  return score;
+}
+
+function sortChordNotes(notes, transpose) {
+  return notes.slice().sort((a, b) => {
+    const diff = notePriorityScore(b, transpose) - notePriorityScore(a, transpose);
+    if (Math.abs(diff) > 0.0001) return diff;
+    if (a.note !== b.note) return a.note - b.note;
+    if (a.channel !== b.channel) return a.channel - b.channel;
+    return a.velocity - b.velocity;
+  });
+}
+
+function makeReadableNote(note, transpose) {
+  const pitch = note.note + transpose;
+  return [
+    "minecraft:" + programToBlock(note.program, note.channel),
+    midiNoteToGridNote(pitch),
+    Math.max(MIN_NOTE_DURATION_MS, Math.round((note.durationMs || 0) * TIME_STRETCH)),
+    note.velocity,
+    note.channel,
+    note.program
+  ];
+}
+
 function convertMidiToReadableJson(parsed) {
   const melodyNotes = pickMelodyFromTracks(parsed);
   if (melodyNotes.length === 0) return [];
@@ -293,71 +386,133 @@ function convertMidiToReadableJson(parsed) {
 
   const buckets = new Map();
   for (const note of melodyNotes) {
-    const bucket = quantize(note.startMs, START_BUCKET_MS);
-    if (!buckets.has(bucket)) buckets.set(bucket, []);
-    buckets.get(bucket).push(note);
+    const bucketMs = quantize(note.startMs, START_BUCKET_MS);
+    if (!buckets.has(bucketMs)) buckets.set(bucketMs, []);
+    buckets.get(bucketMs).push(note);
   }
 
-  const sortedBuckets = [...buckets.keys()].map(Number).sort((a, b) => a - b);
+  const sortedBuckets = [...buckets.entries()].sort((a, b) => Number(a[0]) - Number(b[0]));
+
+  if (isMono) {
+    const out = [];
+    let lastEmittedMs = null;
+    let lastPitch = null;
+
+    for (const [bucketMs, group] of sortedBuckets) {
+      if (!group || group.length === 0) continue;
+
+      let best = null;
+      let bestScore = -Infinity;
+
+      for (const n of group) {
+        if (DROP_DRUM_CHANNELS && Number(n.channel) === 9) continue;
+
+        const pitch = n.note + transpose;
+        let score = 0;
+
+        score += pitch * 2.5;
+        score += (n.velocity || 0) * 0.7;
+        score += Math.min(3000, n.durationMs || 0) / 180;
+
+        if (pitch >= 48 && pitch <= 72) score += 25;
+        else score -= Math.abs(pitch < 48 ? 48 - pitch : pitch - 72) * 6;
+
+        if (lastPitch !== null) score -= Math.abs(pitch - lastPitch) * 1.9;
+        if (lastEmittedMs !== null && (bucketMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) score -= 120;
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = n;
+        }
+      }
+
+      if (!best) continue;
+
+      const startMs = Math.round(best.startMs * TIME_STRETCH);
+
+      if (lastEmittedMs !== null && (startMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) {
+        continue;
+      }
+
+      out.push({
+        delay: lastEmittedMs === null ? 0 : Math.max(0, startMs - lastEmittedMs),
+        notes: [makeReadableNote(best, transpose)]
+      });
+
+      lastEmittedMs = startMs;
+      lastPitch = best.note + transpose;
+    }
+
+    return out;
+  }
 
   const out = [];
   let lastEmittedMs = null;
-  let lastPitch = null;
+  const lastByKey = new Map();
 
-  for (const bucketMs of sortedBuckets) {
-    const group = buckets.get(bucketMs);
+  for (const [, group] of sortedBuckets) {
     if (!group || group.length === 0) continue;
 
-    let best = null;
-    let bestScore = -Infinity;
+    const eventStartMs = Math.round(Math.min(...group.map(n => n.startMs)) * TIME_STRETCH);
 
-    for (const n of group) {
-      if (DROP_DRUM_CHANNELS && Number(n.channel) === 9) continue;
-
-      const pitch = n.note + transpose;
-      let score = 0;
-
-      score += pitch * 2.5;
-      score += (n.velocity || 0) * 0.7;
-      score += Math.min(3000, n.durationMs || 0) / 180;
-
-      if (pitch >= 48 && pitch <= 72) score += 25;
-      else score -= Math.abs(pitch < 48 ? 48 - pitch : pitch - 72) * 6;
-
-      if (lastPitch !== null) score -= Math.abs(pitch - lastPitch) * 1.9;
-
-      if (lastEmittedMs !== null && (bucketMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) {
-        score -= 120;
-      }
-
-      if (score > bestScore) {
-        bestScore = score;
-        best = n;
-      }
-    }
-
-    if (!best) continue;
-
-    const startMs = Math.round(best.startMs * TIME_STRETCH);
-
-    if (lastEmittedMs !== null && (startMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) {
+    if (lastEmittedMs !== null && (eventStartMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) {
       continue;
     }
 
+    const deduped = new Map();
+
+    for (const note of group) {
+      const key = `${note.channel}:${note.note}:${note.program}`;
+      const existing = deduped.get(key);
+
+      if (
+        !existing ||
+        ((note.velocity || 0) + (note.durationMs || 0)) >
+        ((existing.velocity || 0) + (existing.durationMs || 0))
+      ) {
+        deduped.set(key, note);
+      }
+    }
+
+    const sortedGroup = sortChordNotes([...deduped.values()], transpose);
+    if (sortedGroup.length === 0) continue;
+
+    const eventNotes = [];
+
+    for (const note of sortedGroup) {
+      const key = `${note.channel}:${note.note}:${note.program}`;
+      const startMs = Math.round(note.startMs * TIME_STRETCH);
+      const endMs = Math.round((note.startMs + (note.durationMs || 0)) * TIME_STRETCH);
+      const entry = makeReadableNote(note, transpose);
+
+      const previous = lastByKey.get(key);
+      const mergeGap = previous ? (startMs - previous.endMs) : Infinity;
+
+      if (previous && mergeGap >= 0 && mergeGap <= MERGE_SAME_NOTE_GAP_MS) {
+        previous.entry[2] = Math.max(previous.entry[2], entry[2]);
+        previous.entry[3] = Math.max(previous.entry[3], entry[3]);
+        previous.endMs = Math.max(previous.endMs, endMs);
+        continue;
+      }
+
+      const record = {
+        key,
+        entry,
+        endMs
+      };
+
+      lastByKey.set(key, record);
+      eventNotes.push(entry);
+    }
+
+    if (eventNotes.length === 0) continue;
+
     out.push({
-      delay: lastEmittedMs === null ? 0 : Math.max(0, startMs - lastEmittedMs),
-      notes: [[
-        "minecraft:" + programToBlock(best.program, best.channel),
-        midiNoteToGridNote(best.note + transpose),
-        Math.max(MIN_NOTE_DURATION_MS, Math.round((best.durationMs || 0) * TIME_STRETCH)),
-        best.velocity,
-        best.channel,
-        best.program
-      ]]
+      delay: lastEmittedMs === null ? 0 : Math.max(0, eventStartMs - lastEmittedMs),
+      notes: eventNotes
     });
 
-    lastEmittedMs = startMs;
-    lastPitch = best.note + transpose;
+    lastEmittedMs = eventStartMs;
   }
 
   return out;
@@ -365,8 +520,8 @@ function convertMidiToReadableJson(parsed) {
 
 async function handleMidiImportFile(file) {
   const arrayBuffer = await file.arrayBuffer();
-  const parsed = parseMidiFile(arrayBuffer);
-  MIDI_JSON = convertMidiToReadableJson(parsed);
+  PARSED_MIDI = parseMidiFile(arrayBuffer);
+  MIDI_JSON = convertMidiToReadableJson(PARSED_MIDI);
   window.MIDI_JSON = MIDI_JSON;
   console.log("MIDI_JSON:", JSON.stringify(MIDI_JSON, null, 2));
   updateLayers();
@@ -402,10 +557,7 @@ function constructTimeline(midiJson) {
     if (!Array.isArray(event.notes) || event.notes.length === 0) continue;
 
     let delayMs = Math.max(0, Number(event.delay) || 0);
-
-    if (delayMs < 100) {
-      delayMs = 100;
-    }
+    if (delayMs < 100) delayMs = 100;
 
     if (hasPreviousValidChunk) {
       if (hasMultipleLayers) {
@@ -418,10 +570,7 @@ function constructTimeline(midiJson) {
     while (remainingMs >= 100) {
       let repeaterDelay = 3;
 
-      while (
-        repeaterDelay > 0 &&
-        REPEATER_MS[repeaterDelay] > remainingMs
-      ) {
+      while (repeaterDelay > 0 && REPEATER_MS[repeaterDelay] > remainingMs) {
         repeaterDelay--;
       }
 
@@ -456,7 +605,6 @@ function constructTimeline(midiJson) {
   }
 
   timeline[0] = redstoneLayer;
-
   return timeline;
 }
 
@@ -510,14 +658,12 @@ function createLayers(timeline, MIDI_JSON) {
 
   for (let eventIndex = 0; eventIndex < MIDI_JSON.length; eventIndex++) {
     const event = MIDI_JSON[eventIndex];
-    if (!Array.isArray(event.notes)) continue;
+    if (!Array.isArray(event.notes) || event.notes.length === 0) continue;
     if (chunkIndex >= blockPositions.length) break;
 
     const blockPosition = blockPositions[chunkIndex];
 
-    for (let noteIndex = 0; noteIndex < event.notes.length; noteIndex++) {
-      if (noteIndex === 0) continue;
-
+    for (let noteIndex = 1; noteIndex < event.notes.length; noteIndex++) {
       const note = event.notes[noteIndex];
       if (!Array.isArray(note)) continue;
 
@@ -601,6 +747,7 @@ function updateLayers() {
     if (workspace) workspace.scrollLeft = 0;
   });
 }
+
 if (importMidiButton && midiFileInput) {
   importMidiButton.addEventListener("click", () => {
     midiFileInput.value = "";
@@ -619,3 +766,50 @@ if (importMidiButton && midiFileInput) {
     }
   });
 }
+
+const settingsButton = document.getElementById("settingsButton");
+const settingsModal = document.getElementById("settingsModal");
+const settingsCloseButton = document.getElementById("settingsCloseButton");
+const monoToggleButton = document.getElementById("monoToggleButton");
+
+function updateMonoToggle() {
+  monoToggleButton.textContent = isMono ? "ON" : "OFF";
+  monoToggleButton.classList.toggle("off", !isMono);
+}
+
+settingsButton.addEventListener("click", () => {
+  updateMonoToggle();
+  settingsModal.classList.add("visible");
+});
+
+settingsCloseButton.addEventListener("click", () => {
+  settingsModal.classList.remove("visible");
+});
+
+monoToggleButton.addEventListener("click", () => {
+  isMono = !isMono;
+  updateMonoToggle();
+});
+
+settingsModal.addEventListener("click", event => {
+  if (event.target === settingsModal) {
+    settingsModal.classList.remove("visible");
+  }
+});
+
+document.getElementById("reloadButton").addEventListener("click", () => {
+  try {
+    if (!PARSED_MIDI) {
+      createGrid();
+      updatePlayButton();
+      return;
+    }
+    MIDI_JSON = convertMidiToReadableJson(PARSED_MIDI);
+    window.MIDI_JSON = MIDI_JSON;
+    updateLayers();
+    console.log("Reloaded from MIDI data");
+  } catch (error) {
+    console.error("Reload failed:", error);
+  }
+});
+updateMonoToggle();
