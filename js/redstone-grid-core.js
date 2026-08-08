@@ -696,6 +696,65 @@ function wait(milliseconds, session) {
   });
 }
 
+let scrollAnimationFrame = null;
+
+function scrollToPlayerHead(x) {
+  const workspace = document.querySelector(".workspace");
+  const cell = getGridCellElement(0, x);
+
+  if (!workspace || !cell) return;
+
+  const target =
+    cell.offsetLeft +
+    cell.offsetWidth / 2 -
+    workspace.clientWidth / 2;
+
+  const maxScroll =
+    workspace.scrollWidth - workspace.clientWidth;
+
+  const targetScroll = Math.max(
+    0,
+    Math.min(target, maxScroll)
+  );
+
+  if (scrollAnimationFrame) {
+    cancelAnimationFrame(scrollAnimationFrame);
+  }
+
+  const startScroll = workspace.scrollLeft;
+  const distance = targetScroll - startScroll;
+
+  if (Math.abs(distance) < 1) {
+    workspace.scrollLeft = targetScroll;
+    return;
+  }
+
+  const duration = 120;
+  const startTime = performance.now();
+
+  function animateScroll(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    // Smooth ease-out
+    const eased =
+      1 - Math.pow(1 - progress, 3);
+
+    workspace.scrollLeft =
+      startScroll + distance * eased;
+
+    if (progress < 1) {
+      scrollAnimationFrame =
+        requestAnimationFrame(animateScroll);
+    } else {
+      scrollAnimationFrame = null;
+    }
+  }
+
+  scrollAnimationFrame =
+    requestAnimationFrame(animateScroll);
+}
+
 async function play() {
   if (playing) return;
   await prepareAudio();
@@ -711,6 +770,7 @@ async function play() {
     if (!playing || session !== playbackSession) return;
     updatePlayerHeadVisual(playerHead, x);
     playerHead = x;
+    scrollToPlayerHead(x);
     playColumn(x, layerNumbers);
     updateColumnPowerVisual(x, layerNumbers);
     const delay = getColumnDelay(x, layerNumbers);
