@@ -699,62 +699,97 @@ function wait(milliseconds, session) {
 let scrollAnimationFrame = null;
 
 function scrollToPlayerHead(x) {
-  const workspace = document.querySelector(".workspace");
-  const cell = getGridCellElement(0, x);
+  const grid = document.getElementById("grid");
 
-  if (!workspace || !cell) return;
-
-  const target =
-    cell.offsetLeft +
-    cell.offsetWidth / 2 -
-    workspace.clientWidth / 2;
-
-  const maxScroll =
-    workspace.scrollWidth - workspace.clientWidth;
-
-  const targetScroll = Math.max(
-    0,
-    Math.min(target, maxScroll)
-  );
-
-  if (scrollAnimationFrame) {
-    cancelAnimationFrame(scrollAnimationFrame);
-  }
-
-  const startScroll = workspace.scrollLeft;
-  const distance = targetScroll - startScroll;
-
-  if (Math.abs(distance) < 1) {
-    workspace.scrollLeft = targetScroll;
+  if (!grid) {
+    console.log("SCROLL: grid not found", x);
     return;
   }
 
-  const duration = 120;
+  const cells = grid.querySelectorAll(".cell");
+
+  if (!cells[x]) {
+    console.log("SCROLL: cell not found", x);
+    return;
+  }
+
+  const cell = cells[x];
+
+  let scroller = grid.parentElement;
+
+  while (
+    scroller &&
+    scroller !== document.body &&
+    scroller.scrollWidth <= scroller.clientWidth
+  ) {
+    scroller = scroller.parentElement;
+  }
+
+  if (!scroller || scroller === document.body) {
+    console.log("SCROLL: no horizontal scroller found", x);
+    return;
+  }
+
+  const scrollerRect = scroller.getBoundingClientRect();
+  const cellRect = cell.getBoundingClientRect();
+
+  const cellCenter =
+    cellRect.left -
+    scrollerRect.left +
+    cellRect.width / 2;
+
+  const visibleCenter =
+    scroller.clientWidth / 2;
+
+  let targetScroll =
+    scroller.scrollLeft +
+    cellCenter -
+    visibleCenter;
+
+  const maxScroll =
+    scroller.scrollWidth -
+    scroller.clientWidth;
+
+  targetScroll = Math.max(
+    0,
+    Math.min(targetScroll, maxScroll)
+  );
+
+  if (Math.abs(targetScroll - scroller.scrollLeft) < 1) {
+    return;
+  }
+
+  if (scrollAnimationFrame !== null) {
+    cancelAnimationFrame(scrollAnimationFrame);
+    scrollAnimationFrame = null;
+  }
+
+  const startScroll = scroller.scrollLeft;
+  const distance = targetScroll - startScroll;
   const startTime = performance.now();
+  const duration = 160;
 
-  function animateScroll(now) {
-    const elapsed = now - startTime;
-    const progress = Math.min(elapsed / duration, 1);
+  function animate(now) {
+    const progress =
+      Math.min((now - startTime) / duration, 1);
 
-    // Smooth ease-out
     const eased =
       1 - Math.pow(1 - progress, 3);
 
-    workspace.scrollLeft =
+    scroller.scrollLeft =
       startScroll + distance * eased;
 
     if (progress < 1) {
       scrollAnimationFrame =
-        requestAnimationFrame(animateScroll);
+        requestAnimationFrame(animate);
     } else {
       scrollAnimationFrame = null;
     }
   }
 
   scrollAnimationFrame =
-    requestAnimationFrame(animateScroll);
+    requestAnimationFrame(animate);
 }
-
 async function play() {
   if (playing) return;
   await prepareAudio();
