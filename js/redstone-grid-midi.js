@@ -595,9 +595,12 @@ function updateLayers() {
   DATA = { Layers: finalLayers };
   createGrid();
   updatePlayButton();
-  console.log(JSON.stringify(DATA));
-}
 
+  requestAnimationFrame(() => {
+    const workspace = document.querySelector(".workspace");
+    if (workspace) workspace.scrollLeft = 0;
+  });
+}
 if (importMidiButton && midiFileInput) {
   importMidiButton.addEventListener("click", () => {
     midiFileInput.value = "";
