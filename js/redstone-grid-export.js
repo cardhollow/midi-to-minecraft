@@ -259,15 +259,9 @@ async function fetchBinaryFile(path) {
     response = await fetch(path, { cache: "no-store" });
   } catch (error) {
     throw new Error(
+      "Error:\n" + error + "\n\n" +
       "Cannot access:\n" + path + "\n\n" +
-      "Make sure your files are arranged like this:\n\n" +
-      "index.html\n" +
-      "structures/\n" +
-      "  note00.mcstructure\n" +
-      "  note01.mcstructure\n" +
-      "  ...\n" +
-      "  note24.mcstructure\n\n" +
-      "If you opened index.html using file://, use a local web server."
+      "Please reload and try again!"
     );
   }
 
@@ -299,12 +293,6 @@ function createExportModal() {
         <div class="mcpack-modal-title">Export MCPACK</div>
         <div class="mcpack-hint">
           <b>Required folder structure:</b>
-          <pre>index.html
-structures/
-├─ note00.mcstructure
-├─ note01.mcstructure
-├─ ...
-└─ note24.mcstructure</pre>
           <div>
             The MCPACK will contain:
             <br><br>
@@ -313,8 +301,6 @@ structures/
             <code>structures/note00.mcstructure</code>
             through <code>note24.mcstructure</code>
             <br><br>
-            <b>Hint:</b>
-            The 25 structure files are loaded directly from your <code>/structures/</code> folder.
           </div>
         </div>
         <label class="mcpack-label">Behavior Pack Name</label>
