@@ -85,7 +85,7 @@ function openMcpackHelpModal() {
             <div class="mcpack-help-text">6. Activate the behavior pack for your world.</div>
             <div class="mcpack-help-text">7. Enter the world and open the chat.</div>
             <div class="mcpack-help-text">8. Run:</div>
-            <div class="mcpack-help-code">/function build</div>
+            <div class="mcpack-help-code">/function ${getBuildCommand()}</div>
             <div class="mcpack-help-text">
               The generated Redstone music structure will then be built in your Minecraft world.
             </div>
