@@ -281,6 +281,18 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
+function getBuildCommand() {
+  const input = document.getElementById("mcpackBuildCommandInput");
+
+  if (!input) {
+    return "build";
+  }
+
+  const value = input.value.trim();
+
+  return value === "" ? "build" : value;
+}
+
 function createExportModal() {
   const existing = document.getElementById("mcpackExportModal");
   if (existing) return existing;
@@ -291,36 +303,80 @@ function createExportModal() {
   modal.innerHTML = `
       <div class="mcpack-modal-box">
         <div class="mcpack-modal-title">Export MCPACK</div>
+
         <div class="mcpack-hint">
           <b>Required folder structure:</b>
           <div>
             The MCPACK will contain:
             <br><br>
-            <code>functions/build.mcfunction</code>
+            <code>functions/${getBuildCommand()}.mcfunction</code>
             <br>
             <code>structures/note00.mcstructure</code>
             through <code>note24.mcstructure</code>
             <br><br>
           </div>
         </div>
+
+        <label class="mcpack-label">Custom Command</label>
+        <input
+          id="mcpackBuildCommandInput"
+          class="mcpack-name-input"
+          type="text"
+          value="build"
+          placeholder="build"
+          autocomplete="off"
+          spellcheck="false"
+          pattern="[A-Za-z0-9_]+"
+          maxlength="64"
+        >
+
+        <div class="mcpack-command-hint">
+          Only letters, numbers, and underscores are allowed.
+        </div>
+
         <label class="mcpack-label">Behavior Pack Name</label>
-        <input id="mcpackNameInput" class="mcpack-name-input" type="text" value="Redstone Grid" autocomplete="off" spellcheck="false">
+        <input
+          id="mcpackNameInput"
+          class="mcpack-name-input"
+          type="text"
+          value="Redstone Grid"
+          autocomplete="off"
+          spellcheck="false"
+        >
+
         <div class="mcpack-progress-wrap">
           <div class="mcpack-progress-track">
             <div id="mcpackProgressBar" class="mcpack-progress-bar"></div>
           </div>
-          <div id="mcpackProgressPercent" class="mcpack-progress-percent">0%</div>
+
+          <div id="mcpackProgressPercent" class="mcpack-progress-percent">
+            0%
+          </div>
         </div>
-        <div id="mcpackStatus" class="mcpack-status">Ready to export.</div>
+
+        <div id="mcpackStatus" class="mcpack-status">
+          Ready to export.
+        </div>
+
         <div id="mcpackDownloadArea" class="mcpack-download-area"></div>
+
         <div class="mcpack-modal-buttons">
-          <button id="mcpackCancelButton" class="mcpack-button">Cancel</button>
-          <button id="mcpackExportButton" class="mcpack-button mcpack-primary">Build MCPACK</button>
+          <button id="mcpackCancelButton" class="mcpack-button">
+            Cancel
+          </button>
+
+          <button
+            id="mcpackExportButton"
+            class="mcpack-button mcpack-primary"
+          >
+            Build MCPACK
+          </button>
         </div>
       </div>
     `;
 
   const style = document.createElement("style");
+
   style.textContent = `
       #mcpackExportModal {
         position: fixed;
@@ -334,7 +390,9 @@ function createExportModal() {
         background: rgba(0, 0, 0, 0.78);
       }
 
-      #mcpackExportModal.visible { display: flex; }
+      #mcpackExportModal.visible {
+        display: flex;
+      }
 
       .mcpack-modal-box {
         width: min(460px, 100%);
@@ -349,7 +407,11 @@ function createExportModal() {
         font-family: Arial, Helvetica, sans-serif;
       }
 
-      .mcpack-modal-title { margin-bottom: 15px; font-size: 21px; font-weight: 700; }
+      .mcpack-modal-title {
+        margin-bottom: 15px;
+        font-size: 21px;
+        font-weight: 700;
+      }
 
       .mcpack-hint {
         margin-bottom: 17px;
@@ -372,9 +434,18 @@ function createExportModal() {
         font-size: 12px;
       }
 
-      .mcpack-hint code { color: #ffffff; font-family: monospace; font-size: 11px; }
+      .mcpack-hint code {
+        color: #ffffff;
+        font-family: monospace;
+        font-size: 11px;
+      }
 
-      .mcpack-label { display: block; margin-bottom: 7px; color: #bbbbbb; font-size: 13px; }
+      .mcpack-label {
+        display: block;
+        margin-bottom: 7px;
+        color: #bbbbbb;
+        font-size: 13px;
+      }
 
       .mcpack-name-input {
         width: 100%;
@@ -388,15 +459,47 @@ function createExportModal() {
         font-size: 15px;
       }
 
-      .mcpack-name-input:focus { border-color: #777777; }
+      .mcpack-name-input:focus {
+        border-color: #777777;
+      }
 
-      .mcpack-progress-wrap { display: flex; align-items: center; gap: 10px; margin-top: 15px; }
+      .mcpack-command-hint {
+        margin-top: 6px;
+        margin-bottom: 15px;
+        color: #777777;
+        font-size: 11px;
+      }
 
-      .mcpack-progress-track { flex: 1; height: 8px; overflow: hidden; border-radius: 999px; background: #333333; }
+      .mcpack-progress-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 15px;
+      }
 
-      .mcpack-progress-bar { width: 0%; height: 100%; border-radius: 999px; background: #ffffff; transition: width 0.15s ease; }
+      .mcpack-progress-track {
+        flex: 1;
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #333333;
+      }
 
-      .mcpack-progress-percent { width: 42px; color: #cccccc; text-align: right; font-size: 12px; font-family: monospace; }
+      .mcpack-progress-bar {
+        width: 0%;
+        height: 100%;
+        border-radius: 999px;
+        background: #ffffff;
+        transition: width 0.15s ease;
+      }
+
+      .mcpack-progress-percent {
+        width: 42px;
+        color: #cccccc;
+        text-align: right;
+        font-size: 12px;
+        font-family: monospace;
+      }
 
       .mcpack-status {
         min-height: 50px;
@@ -412,7 +515,9 @@ function createExportModal() {
         word-break: break-word;
       }
 
-      .mcpack-download-area { margin-top: 10px; }
+      .mcpack-download-area {
+        margin-top: 10px;
+      }
 
       .mcpack-download-button {
         width: 100%;
@@ -426,7 +531,11 @@ function createExportModal() {
         cursor: pointer;
       }
 
-      .mcpack-modal-buttons { display: flex; gap: 10px; margin-top: 15px; }
+      .mcpack-modal-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+      }
 
       .mcpack-button {
         flex: 1;
@@ -439,14 +548,26 @@ function createExportModal() {
         cursor: pointer;
       }
 
-      .mcpack-primary { background: #ffffff; color: #000000; font-weight: 700; }
+      .mcpack-primary {
+        background: #ffffff;
+        color: #000000;
+        font-weight: 700;
+      }
 
-      .mcpack-button:disabled { opacity: 0.45; cursor: default; }
+      .mcpack-button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .mcpack-name-input:invalid {
+        border-color: #aa4444;
+      }
     `;
 
   document.head.appendChild(style);
   document.body.appendChild(modal);
 
+  const commandInput = modal.querySelector("#mcpackBuildCommandInput");
   const nameInput = modal.querySelector("#mcpackNameInput");
   const cancelButton = modal.querySelector("#mcpackCancelButton");
   const exportButton = modal.querySelector("#mcpackExportButton");
@@ -455,18 +576,81 @@ function createExportModal() {
   const progressPercent = modal.querySelector("#mcpackProgressPercent");
   const downloadArea = modal.querySelector("#mcpackDownloadArea");
 
+  /*
+   * Only allow:
+   * A-Z
+   * a-z
+   * 0-9
+   * _
+   */
+  commandInput.addEventListener("input", function () {
+    this.value = this.value.replace(/[^A-Za-z0-9_]/g, "");
+
+    updateBuildCommandPreview();
+  });
+
+  /*
+   * Updates the displayed:
+   *
+   * functions/build.mcfunction
+   *
+   * to:
+   *
+   * functions/my_command.mcfunction
+   */
+  function updateBuildCommandPreview() {
+    const command = getBuildCommand();
+
+    const hint = modal.querySelector(".mcpack-hint div");
+
+    if (!hint) return;
+
+    hint.innerHTML = `
+      The MCPACK will contain:
+      <br><br>
+      <code>functions/${command}.mcfunction</code>
+      <br>
+      <code>structures/note00.mcstructure</code>
+      through <code>note24.mcstructure</code>
+      <br><br>
+    `;
+  }
+
   cancelButton.addEventListener("click", function () {
-    if (!exportButton.disabled) modal.classList.remove("visible");
+    if (!exportButton.disabled) {
+      modal.classList.remove("visible");
+    }
   });
 
   modal.addEventListener("click", function (event) {
-    if (event.target === modal && !exportButton.disabled) {
+    if (
+      event.target === modal &&
+      !exportButton.disabled
+    ) {
       modal.classList.remove("visible");
     }
   });
 
   exportButton.addEventListener("click", function () {
-    startMcpackExport(modal, nameInput, status, progressBar, progressPercent, downloadArea, exportButton);
+    const command = getBuildCommand();
+
+    if (!/^[A-Za-z0-9_]+$/.test(command)) {
+      status.textContent =
+        "Invalid custom command. Only letters, numbers, and underscores are allowed.";
+
+      commandInput.focus();
+      return;
+    }
+
+    startMcpackExport(
+      modal,
+      nameInput,
+      status,
+      progressBar,
+      progressPercent,
+      downloadArea,
+      exportButton
+    );
   });
 
   return modal;
