@@ -7,8 +7,6 @@ let PARSED_MIDI = null;
 
 let isMono = false;
 const START_BUCKET_MS = 70;
-const MIN_MELODY_SPACING_MS = 140;
-const MERGE_SAME_NOTE_GAP_MS = 90;
 const TIME_STRETCH = 1.35;
 const DROP_DRUM_CHANNELS = true;
 const PREFERRED_CENTER_MIDI = 60;
@@ -48,7 +46,7 @@ function midiNoteToGridNote(midiNote) {
 }
 
 function programToBlock(program, channel) {
-  const blocks = ["dirt", "oak_planks", "stone", "sand", "iron_block"];
+  const blocks = ["dirt", "oak_planks", "stone", "sand", "iron"];
   if (Number(channel) === 9) return "sand";
   return blocks[Math.abs(Number(program) || 0) % blocks.length];
 }
@@ -418,7 +416,6 @@ function convertMidiToReadableJson(parsed) {
         else score -= Math.abs(pitch < 48 ? 48 - pitch : pitch - 72) * 6;
 
         if (lastPitch !== null) score -= Math.abs(pitch - lastPitch) * 1.9;
-        if (lastEmittedMs !== null && (bucketMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) score -= 120;
 
         if (score > bestScore) {
           bestScore = score;
@@ -429,10 +426,6 @@ function convertMidiToReadableJson(parsed) {
       if (!best) continue;
 
       const startMs = Math.round(best.startMs * TIME_STRETCH);
-
-      if (lastEmittedMs !== null && (startMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) {
-        continue;
-      }
 
       out.push({
         delay: lastEmittedMs === null ? 0 : Math.max(0, startMs - lastEmittedMs),
@@ -448,63 +441,20 @@ function convertMidiToReadableJson(parsed) {
 
   const out = [];
   let lastEmittedMs = null;
-  const lastByKey = new Map();
 
   for (const [, group] of sortedBuckets) {
     if (!group || group.length === 0) continue;
 
     const eventStartMs = Math.round(Math.min(...group.map(n => n.startMs)) * TIME_STRETCH);
 
-    if (lastEmittedMs !== null && (eventStartMs - lastEmittedMs) < MIN_MELODY_SPACING_MS) {
-      continue;
-    }
-
-    const deduped = new Map();
-
-    for (const note of group) {
-      const key = `${note.channel}:${note.note}:${note.program}`;
-      const existing = deduped.get(key);
-
-      if (
-        !existing ||
-        ((note.velocity || 0) + (note.durationMs || 0)) >
-        ((existing.velocity || 0) + (existing.durationMs || 0))
-      ) {
-        deduped.set(key, note);
-      }
-    }
-
-    const sortedGroup = sortChordNotes([...deduped.values()], transpose);
+    // Keep every note-on represented in the generated grid. Deduplicating by
+    // channel/pitch/program dropped repeated notes that landed in the same bucket.
+    const sortedGroup = sortChordNotes(group, transpose);
     if (sortedGroup.length === 0) continue;
 
-    const eventNotes = [];
-
-    for (const note of sortedGroup) {
-      const key = `${note.channel}:${note.note}:${note.program}`;
-      const startMs = Math.round(note.startMs * TIME_STRETCH);
-      const endMs = Math.round((note.startMs + (note.durationMs || 0)) * TIME_STRETCH);
-      const entry = makeReadableNote(note, transpose);
-
-      const previous = lastByKey.get(key);
-      const mergeGap = previous ? (startMs - previous.endMs) : Infinity;
-
-      if (previous && mergeGap >= 0 && mergeGap <= MERGE_SAME_NOTE_GAP_MS) {
-        previous.entry[2] = Math.max(previous.entry[2], entry[2]);
-        previous.entry[3] = Math.max(previous.entry[3], entry[3]);
-        previous.endMs = Math.max(previous.endMs, endMs);
-        continue;
-      }
-
-      const record = {
-        key,
-        entry,
-        endMs
-      };
-
-      lastByKey.set(key, record);
-      eventNotes.push(entry);
-    }
-
+    // Preserve retriggered notes. Merging nearby same-pitch notes into a longer
+    // duration caused the later trigger to disappear from the Minecraft grid.
+    const eventNotes = sortedGroup.map(note => makeReadableNote(note, transpose));
     if (eventNotes.length === 0) continue;
 
     out.push({
@@ -540,6 +490,7 @@ function constructTimeline(midiJson) {
     if (typeof blockName !== "string") return null;
     let name = blockName.replace(/^minecraft:/, "");
     if (name === "oak_planks") name = "plank";
+    if (name === "iron_block") name = "iron";
     if (!BLOCKS[name]) return null;
     return name;
   }
@@ -627,6 +578,7 @@ function createLayers(timeline, MIDI_JSON) {
     if (typeof blockName !== "string") return null;
     let name = blockName.replace(/^minecraft:/, "");
     if (name === "oak_planks") name = "plank";
+    if (name === "iron_block") name = "iron";
     if (!BLOCKS[name]) return null;
     return name;
   }
